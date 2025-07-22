@@ -1,0 +1,1044 @@
+---
+title: 'Business Statistics End of Term Assessment IB94X0 2024-2025 #1'
+author: '5652632'
+output:
+  html_document:
+    toc: yes
+    toc_depth: 3
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, message=FALSE, warning=FALSE}
+
+# packages used in this assignment
+
+library(tidyverse)
+library(gridExtra)
+library(lubridate)
+library(kableExtra)
+library(Hmisc)
+library(car)
+library(stringr)
+library(emmeans)
+
+# options
+
+options(width=100)
+
+```
+
+---
+
+***This is to certify that the work I am submitting is my own. All external references and sources are clearly acknowledged and identified within the contents. I am aware of the University of Warwick regulation concerning plagiarism and collusion.***
+
+***No substantial part(s) of the work  submitted  here has also been submitted by  me  in other assessments for accredited courses of study, and I acknowledge that if this has been done an appropriate reduction in the mark I might otherwise have received will be made.***
+
+***AI was used in the preparation of this work. It was used in the development of the code: It was used to provide example uses of functions or approaches to elements of the challenges which were then interpreted by me and modified to be applicable to this data/report.***
+
+---
+
+# **Question 1 Overview**
+
+The task involves analyzing data on Cardiovascular Disease (CVD) prevalence across different areas in England. The objective is to identify which factors — **overweight, smokers, wellbeing, and poverty** — impact the prevalence of **CVD**. The analysis requires adhering to statistical conventions, and creating a professional visualization showing the relationship between **poverty** and **CVD**.
+
+---
+
+## **1. Read in data and evaluate data integrity & quality**
+
+```{r, message = FALSE, results = "hide"}
+
+# Read in data
+
+data.q1 <- read_csv("Cardio_Vascular_Disease.csv")
+
+```
+
+### **Data dictionary**
+
+| **Variable** | **Description** |
+|------------------------------------|------------------------------------|
+| area_name | Name of the city, or borough (if in London). |
+| area_code | Unique 9-character code for the area, consisting of letters and integers (i.e., **E08000025**). |
+| population | Total number of people living in the area. |
+| poverty | Proportion of the population classified as living in poverty in the area (expressed as a decimal). |
+| CVD | Proportion of the population that has recently experienced Cardiovascular Disease (CVD) (expressed as a decimal). |
+| overweight | Proportion of the population classified as overweight in the area (expressed as decimal). |
+| smokers | Proportion of the population classified as smokers in the area (expressed as decimal). |
+| wellbeing | Average reported wellbeing score for the population living in the area. |
+
+---
+
+### **Data quality & integrity checks**
+
+#### Check overall data structure & data types
+
+``` {r}
+
+# Verify all data types are correct (`date`, `character`, `double` etc.)
+
+str(data.q1)
+
+```
+
+All data types are as expected. No changes required.
+
+---
+
+#### Rename columns
+
+``` {r}
+
+# Rename the `Population` and `Poverty` columns to `population` and `poverty` in all lower case for consistent variable formatting
+
+data.q1 <- data.q1 %>%
+  rename(population = Population, poverty = Poverty)
+
+```
+
+---
+
+#### Investigate **missing** data points (`NA` values)
+
+``` {r}
+
+# Summary to get a quick overview of the number `NA` values and in which columns
+
+summary(data.q1)
+
+```
+
+There are `NA` values in all columns, 76 rows in population, **poverty** and **CVD** which is significant - almost 20% - of the whole dataset which only has 385 rows. Additionally, there are 72 missing values in **overweight**, 7 in **smokers** and 15 in **wellbeing**.
+
+``` {r}
+
+# Displaying all the rows with missing `CVD` which is the dependent variable which we are trying to analyze.
+
+CVD.na <- data.q1 %>% 
+  filter(is.na(CVD))
+CVD.na
+
+```
+
+Upon inspection, the majority of `NA` values occur in the same 76 rows, where **CVD** (the dependent variable) is missing. Additionally, these rows have little data for the predictor variables, with most columns also containing `NAs`.
+
+Since our goal is to evaluate the impact of **overweight, smokers, wellbeing, and poverty** on the prevalence of **CVD**, the absence of key data points for both the dependent and independent variables makes meaningful analysis impossible.
+
+This is why we will omit these 76 rows from the dataset.
+
+``` {r}
+
+# Delete 76 rows from the dataset
+
+data.q1 <- data.q1 %>% 
+  filter(!is.na(CVD))
+
+# Check summary again to see how many `NA` values are left
+
+summary(data.q1)
+
+```
+
+After omitting these 76 rows, there are only a total of 7 `NA` values left.
+
+``` {r}
+
+# Displaying the remaing `NA` values in the `smokers` and `wellbeing` columns
+
+smokers.na <- data.q1 %>% 
+  filter(is.na(smokers))
+smokers.na
+
+wellbeing.na <- data.q1 %>% 
+  filter(is.na(wellbeing))
+wellbeing.na
+
+```
+
+Since the number of `NA` values is minimal and the rows with missing data are otherwise complete, it is more beneficial to keep these rows in the dataset rather than removing them. We are choosing not to use imputation, as it introduces assumptions about the missing data that may not be accurate. The impact on calculations and models will be minimal, as methods like **lm()** can handle these missing values by simply excluding them from the analysis without affecting the overall model.
+
+This is why we will keep the 7 `NA` values in the dataset.
+
+---
+
+#### Check for **duplicate** values
+
+``` {r}
+# Check if there are any duplicate rows for `area_name` and `area_code`
+
+sum(duplicated(data.q1$area_name))
+sum(duplicated(data.q1$area_code))
+
+```
+
+There are no duplicate rows and no action is taken.
+
+---
+
+### **Data integrity & quality summary**
+
+| **Finding** | **Action taken** |
+|------------------------------------|------------------------------------|
+| 76 missing values in **CVD** | Removed the affected rows, as the missing data rendered analysis impossible. |
+| 3 missing values in **smokers** | Decided to retain the rows with missing values, as they do not inhibit further analysis. |
+| 4 missing values in **wellbeing** | Decided to retain the rows with missing values, as they do not inhibit further analysis. |
+
+---
+
+## **2. Exploratory analysis**
+
+
+### **Histograms for each variable to check for normal distribution, outliers**
+
+``` {r, warning=FALSE}
+
+# Create histograms for each variable
+
+hist.poverty <- ggplot(data.q1, aes(x = poverty)) +
+  geom_histogram(binwidth = 1, fill = "blue", color = "black") +
+  labs(title = "Distribution of Poverty", x = "Poverty rate (%)", y = "Frequency") +
+  theme(plot.title = element_text(size = 11))
+
+hist.overweight <- ggplot(data.q1, aes(x = overweight)) +
+  geom_histogram(binwidth = 2, fill = "blue", color = "black") +
+  labs(title = "Distribution of Overweight", x = "Overweight rate (%)", y = "Frequency") +
+  theme(plot.title = element_text(size = 11))
+
+hist.smokers <- ggplot(data.q1, aes(x = smokers)) +
+  geom_histogram(binwidth = 2, fill = "blue", color = "black") +
+  labs(title = "Distribution of Smokers", x = "Smokers rate (%)", y = "Frequency") +
+  theme(plot.title = element_text(size = 11))
+
+hist.wellbeing <- ggplot(data.q1, aes(x = wellbeing)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black") +
+  labs(title = "Distribution of Wellbeing", x = "Wellbeing Score", y = "Frequency") +
+  theme(plot.title = element_text(size = 11))
+
+hist.CVD <- ggplot(data.q1, aes(x = CVD)) +
+  geom_histogram(binwidth = 0.7, fill = "blue", color = "black") +
+  labs(title = "Distribution of CVD", x = "CVD rate (%)", y = "Frequency") +
+  theme(plot.title = element_text(size = 11))
+
+grid.arrange(hist.poverty, hist.overweight, hist.smokers, hist.wellbeing, hist.CVD, ncol = 3)
+
+```
+
+All continuous variables in the dataset are approximately normally distributed.
+
+- **Poverty** shows a slight right skew, but it is not significant enough to raise concerns.
+
+- Similarly, **overweight** has a minor left skew, which is also within acceptable limits.
+
+- **Smokers** appears normally distributed, with a few potential outliers on the higher end; however, these values are not drastically distant from the rest of the data and do not pose any significant issues.
+
+- **Wellbeing** is largely normally distributed with no notable deviations.
+
+- **CVD** follows an approximately normal distribution as well. 
+
+Overall, there are no distributional concerns with the data.
+
+---
+
+### **Analysis of Predictors and CVD Relationships**
+
+``` {r, warning=FALSE, message = FALSE}
+
+# Create scatter plots for each variable vs CVD
+# `Complete.obs` to exclude any `NA` values when calculating `r`
+
+plot.overweight <- ggplot(data.q1, aes(x = overweight, y = CVD)) + 
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue", se = TRUE) +
+  labs(x = "Overweight rate (%)", y = "CVD rate (%)", 
+       title = "Overweight vs CVD", 
+       subtitle = paste0("r = ", round(cor(data.q1$overweight, data.q1$CVD, use = "complete.obs"), 2)))
+
+plot.smokers <- ggplot(data.q1, aes(x = smokers, y = CVD)) + 
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue", se = TRUE) +
+  labs(x = "Smokers rate (%)", y = "CVD rate (%)", 
+       title = "Smokers vs CVD", 
+       subtitle = paste0("r = ", round(cor(data.q1$smokers, data.q1$CVD, use = "complete.obs"), 2)))
+
+plot.poverty <- ggplot(data.q1, aes(x = poverty, y = CVD)) + 
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue", se = TRUE) +
+  labs(x = "Poverty rate (%)", y = "CVD rate (%)", 
+       title = "Poverty vs CVD", 
+       subtitle = paste0("r = ", round(cor(data.q1$poverty, data.q1$CVD, use = "complete.obs"), 2)))
+
+plot.wellbeing <- ggplot(data.q1, aes(x = wellbeing, y = CVD)) + 
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue", se = TRUE) +
+  labs(x = "Average wellbeing score (integer)", y = "CVD rate (%)", 
+       title = "Overall wellbeing score vs CVD", 
+       subtitle = paste0("r = ", round(cor(data.q1$wellbeing, data.q1$CVD, use = "complete.obs"), 2)))
+
+# Arrange all plots in a grid
+grid.arrange(plot.poverty, plot.overweight, plot.smokers, plot.wellbeing, ncol = 2)
+
+```
+
+The scatter plots reveal a high degree of variability in the data, as shown by the dispersion of points around the line of best fit. This high variance is also reflected in relatively low "$r$" values, indicating relatively weak to moderate linear relationships overall. Some findings, particularly for **wellbeing** and **poverty**, warrant further scrutiny.
+
+**Overweight:**
+
+There is a positive linear relationship between the rate of **overweight** individuals and the prevalence of **CVDs** ($r=0.32$). This suggests that as the rate of **overweight** individuals increases, **CVD** rates also rise. This aligns with expectations, as being **overweight** is a well-documented risk factor for cardiovascular diseases.
+
+**Smokers:** 
+
+We also have a  linear relationship between the proportion of **smokers** and **CVD** prevalence ($r=0.16$). This indicates that higher smoking rates are associated with increased **CVD** rates, consistent with our knowledge about the harmful effects of smoking on cardiovascular health.
+
+**Poverty:**
+
+Interestingly, a negative linear relationship exists between **poverty** and **CVD** rates ($r=−0.24$). This implies that higher **poverty** rates correlate with lower **CVD** prevalence, which seems counterintuitive. One possible explanation is underreporting: individuals in higher **poverty** areas may face limited access to healthcare, resulting in undiagnosed **CVD** cases. However, this hypothesis requires further investigation and consultation with SMEs.
+
+**Wellbeing:**
+
+Surprisingly, we have a positive linear relationship between average **wellbeing** scores and **CVD** prevalence ($r=0.24$). This is unexpected, as we might anticipate that higher **wellbeing** correlates with lower **CVD** rates, given the association of **wellbeing** with overall health. Similar to **poverty**, one plausible explanation is a reporting bias: individuals with higher **wellbeing** may have better access to healthcare, leading to more frequent diagnoses. Again, this is speculative and highlights the need for additional research.
+
+---
+
+### **Exploring the impact of predictors on CVD through linear regression models**
+
+We start by investigating the individual effect of each predictor variable - **smokers, overweight, poverty, and wellbeing** - on the dependent variable **CVD** by creating **simple linear regression models**. By analyzing these predictors separately, we aim to understand their unique contributions in isolation before considering their impact in a more complex model.
+
+``` {r}
+
+m.wellbeing.CVD <- lm(CVD ~ wellbeing, data = data.q1)
+summary(m.wellbeing.CVD)
+confint(m.wellbeing.CVD)
+        
+```
+
+For every extra point in **wellbeing**, the rate of **CVD** increases by 2.22%. This increase is significantly different from zero, $t(303)=4.36, p < 0.0001$, 95% CI [1.218 - 3.226]. The Adjusted R-squared value is $R^2=0.056$, indicating that only 5.6% of the variance in **CVD** is explained by **wellbeing**, which suggests that **wellbeing** has a limited ability to predict **CVD** on its own.
+
+---
+
+``` {r}
+
+m.poverty.CVD <- lm(CVD ~ poverty, data = data.q1)
+summary(m.poverty.CVD)
+confint(m.poverty.CVD)
+
+```
+
+For every 1% increase of **poverty** rate, the rate of **CVD** decreases by 0.15%. This decrease is significantly different from zero, $t(307)=-4.4, p < 0.0001$, 95% CI [-0.221 - (-0.084)]. The Adjusted R-squared value is $R^2=0.056$, indicating that only 5.6% of the variance in **CVD** is explained by **poverty**, which also tells us that **poverty** has a limited ability to predict **CVD** on its own.
+
+---
+
+``` {r}
+
+m.overweight.CVD <- lm(CVD ~ overweight, data = data.q1)
+summary(m.overweight.CVD)
+confint(m.overweight.CVD)
+
+```
+
+For every 1% increase of **overweight** rate, the rate of **CVD** increases by 0.12%. This increase is significantly different from zero, $t(307)=5.84, p < 0.0001$, 95% CI [0.081 - 0.163]. The Adjusted R-squared value is $R^2=0.097$, indicating that 9.7% of the variance in **CVD** is explained by **overweight**, which means that **overweight** has a limited ability to predict **CVD** on its own as well.
+
+---
+
+``` {r}
+
+m.smokers.CVD <- lm(CVD ~ smokers, data = data.q1)
+summary(m.smokers.CVD)
+confint(m.smokers.CVD)
+
+```
+
+For every 1% increase of **smokers** rate, the rate of **CVD** increases by 0.09%. This increase is significantly different from zero, $t(304)=2.87, p = 0.0044$, 95% CI [0.029 - 0.156]. The Adjusted R-squared value is $R^2=0.023$, indicating that only 2.3% of the variance in **CVD** is explained by **smokers**, which suggests that **smokers** has a limited ability to predict **CVD** on its own.
+
+---
+
+### **Building a multiple regression model to understand combined effects**
+
+Now that we have analyzed the isolated impact of each predictor on **CVD**, we will construct a **multiple regression model** incorporating all four predictors to explore their effect on **CVD** within a more complex model.
+
+``` {r}
+
+lm.multi.regr <- lm(CVD ~ wellbeing + poverty + overweight + smokers, data = data.q1)
+summary(lm.multi.regr)
+confint(lm.multi.regr)
+
+```
+
+
+Similar to the simple linear regression models that examined the effect of each predictor on **CVD** in isolation, this multiple regression model considers the unique contribution of each predictor while accounting for the presence of the others. This is why the estimates for each variable differ slightly from the simple regression models. Importantly, the interpretation of each variable's effect in the multiple regression model assumes all other predictors are held constant.
+
+We chose not to include any interaction terms in the model because there was no specific theoretical or empirical rationale suggesting that the relationship between any two predictors would influence **CVD** as a combined effect. Also, as implied by the question, the analysis focuses on understanding the main effects of each predictor rather than exploring potential interaction effects between them.
+
+The results show that there is a statistically significant main effect of each of the predictor variables (all at 95% CI):
+
+- **Wellbeing:** ($b=1.8, CI=[0.834 - 2.766], t(298)=3.667, p<0.001$)
+
+- **Poverty:** ($b=-0.184, CI=[-0.253 - (-0.115)], t(298)=-5.234, p<0.001$)
+
+- **Overweight:** ($b=0.11, CI=[0.068 - 0.152], t(298)=5.174, p<0.001$)
+
+- **Smokers:** ($b=0.12, CI=[0.054 - 0.187], t(298)=3.574, p=0.001$)
+
+The Adjusted R-squared value is $R^2=0.239$, indicating that approximately 24% of the variance in **CVD** is explained by the four predictors. This leaves 76% of the variance unexplained, which could be due to different reasons. 
+
+1. These variables may not be strong predictors of **CVD**, as hinted in the simple regressions.
+
+2. Other influential predictors - such as **exercise, diet, genetics, or environmental factors** - may be missing from the model. The complexity of **CVD** might mean that a broad array of factors is required for a robust explanation of the prevalence of **CVDs**.
+
+---
+
+### **Checking for Multicollinearity**
+
+After having run the multiple regression model, we are going to do a quick check for multicollinearity for any intercorrelations among predictor variables.
+
+``` {r}
+
+vif(lm.multi.regr)
+
+```
+
+When using the Variance Inflation Factor (VIF) to assess collinearity within a regression model, values below 5 are generally considered unproblematic. In our case, VIF scores for **wellbeing** (1.146), **poverty** (1.263), **overweight** (1.197), and **smokers** (1.359) are all well below this threshold, so we can confidently conclude that multicollinearity is not a concern in our multiple regression model.
+
+---
+
+## **3. Visualizing the relationship between poverty and CVD**
+
+As mentioned in the question, this is a professionally formatted plot depicting the relationship between **poverty** and **CVD**.
+
+``` {r}
+
+ggplot(data.q1, aes(x = poverty, y = CVD)) +
+  geom_point(color = "darkblue", size = 3, alpha = 0.7) +
+  geom_smooth(method = "lm", color = "red", se = TRUE) +
+  labs(
+    title = "Relationship Between Poverty and CVD rate",
+    subtitle = "Each point represents an area; the red line shows the best-fitting linear regression line",
+    x = "Poverty Rate (%)",
+    y = "CVD Prevalence (%)"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    plot.subtitle = element_text(size = 12, margin = margin(b = 10))
+  )
+
+```
+
+We previously discussed the unexpected negative correlation between **poverty** and **CVD**, which seems to contradict the intuitive expectation that higher poverty levels would correlate with increased rates of conditions like **CVDs**. Since potential explanations for this finding have already been addressed, we will not reiterate them here.
+
+For future research, it would be valuable to delve deeper into this relationship to uncover its underlying causes - Does **poverty** affect CVD differently at different poverty levels, whether they stem from factors like underreporting or other systemic issues.
+
+Additionally, the positive relationship between higher **wellbeing** scores and increased **CVD** rates warrants further investigation as it also appears counterintuitive at first glance.
+
+Expanding the dataset to include more predictive variables, such as exercise, diet, or access to healthcare, could also enhance the explanatory power of our regression models, which currently account for only about 24% of the variance in **CVD**. This would provide a more comprehensive understanding of the factors influencing **CVD** prevalence.
+
+---
+
+# **Question 2 Overview**
+
+This task involves analyzing customer satisfaction data from a furniture retail company to investigate the factors that influence **customer satisfaction** across different stores.
+
+The company is particularly interested in understanding the effect of **delivery time on customer satisfaction** and whether this effect varies across stores categorized by SES levels (low, medium, and high).
+
+---
+
+## **1. Read in data and evaluate data integrity & quality**
+
+```{r, message = FALSE, results = "hide"}
+
+# Read in data
+
+data.q2 <- read_csv("cust_satisfaction.csv")
+
+```
+
+--- 
+
+### **Data dictionary**
+
+| **Variable** | **Description** |
+|------------------------------------|------------------------------------|
+| SES_category | The company’s categorization of store type by local socio-economic status (low, medium, high). |
+| customer.satisfaction | The average customer satisfaction score at each store. |
+| staff.satisfaction | The average staff job satisfaction score at each store. |
+| delivery.time | The average delivery time of large and custom items for each store. |
+| new_range | Whether the store is carrying a new range of products (TRUE or FALSE). |
+
+---
+
+### **Data quality & integrity checks**
+
+#### Check overall data structure & data types
+
+``` {r}
+
+# Verify all data types are correct
+
+str(data.q2)
+
+```
+
+All columns are correctly formatted except for **SES_category** which should be formatted as **ordinal categorical data**, meaning that it is a categorical variable that has a natural order/rank - in our case **Low < Medium < High**. So let's transform it accordingly.
+
+``` {r}
+
+# Transform SES_category into an ordered factor, and make levels all small letters
+
+data.q2$SES_category <- factor(data.q2$SES_category, 
+                               levels = c("Low", "Medium", "High"))
+                               
+# check the str() function again to check if SES_category is now correctly formatted
+
+str(data.q2)
+
+```
+
+**SES_category** after the transformation now correctly displays as an ordered factor with 3 levels: Low < Medium < High.
+
+---
+
+#### Investigate **missing** data points (NA values)
+
+``` {r}
+
+# Summary to spot `NAs`
+
+summary(data.q2)
+
+```
+
+There are no missing values in this dataset and no actions are taken.
+
+---
+
+#### Rename columns
+
+We will rename the **SES_category** and **new_range** columns to **SES.category** and **new.range** for consistent variable formatting.
+
+``` {r}
+
+# Rename `SES_category` and `new_range`
+
+data.q2 <- data.q2 %>%
+  rename(SES.category = SES_category, new.range = new_range)
+
+```
+
+---
+
+### **Data integrity & quality summary**
+
+| **Finding** | **Action taken** |
+|------------------------------------|------------------------------------|
+| Incorrect variable formatting of **SES.category** | Transformed **SES.category** into an ordered factor with 3 levels: Low < Medium < High. |
+| Inconsistent variable formatting | Renamed **SES_category** to **SES.category** and **new_range** to **new.range** for consistency. |
+
+---
+
+## **2. Exploratory analysis**
+
+
+### **Visualizations for each variable to check distribution, outliers, etc.**
+
+``` {r}
+# Histograms Customer Satisfaction
+
+hist.cust.sat <- ggplot(data.q2, aes(x = customer.satisfaction)) +
+  geom_histogram(binwidth = 0.6, fill = "blue", color = "black") +
+  labs(
+    title = "Distribution of Customer Satisfaction Scores",
+    x = "Average customer satisfaction score",
+    y = "Frequency") +
+  theme(plot.title = element_text(size = 12))
+hist.cust.sat
+
+```
+
+**Customer satisfaction scores** are largely normally distributed with potentially a slight left skew and some small values, but nothing concerning.
+
+---
+
+``` {r}
+
+# Histogram Staff Satisfaction
+
+hist.staff.satisfaction <- ggplot(data.q2, aes(x = staff.satisfaction)) +
+  geom_histogram(binwidth = 0.3, fill = "blue", color = "black") +
+  labs(
+    title = "Distribution of Staff Satisfaction Scores",
+    x = "Average staff satisfaction score",
+    y = "Frequency") +
+  theme(plot.title = element_text(size = 12))
+hist.staff.satisfaction
+
+```
+
+**Staff satisfaction scores** are largely normally distributed as well without any major concerns.
+
+---
+
+``` {r}
+
+# Histogram Delivery Time
+
+hist.del.time <- ggplot(data.q2, aes(x = delivery.time)) +
+  geom_histogram(binwidth = 5.5, fill = "blue", color = "black") +
+  labs(
+    title = "Distribution of Delivery Time",
+    x = "Average delivery time of large and custom items",
+    y = "Frequency") +
+  theme(plot.title = element_text(size = 12))
+hist.del.time
+
+```
+
+**Delivery times** are also mostly normally distributed with a slight left skew and some pretty high values on the right, but nothing abnormal or concerning.
+
+---
+
+``` {r}
+
+# Bar chart for SES.category
+
+bar.SES.cat <- ggplot(data.q2, aes(x = SES.category)) +
+  geom_bar(fill = "blue", color = "black") +  # Bar plot with custom colors
+  labs(
+    title = "Distribution of Socio-Economic Status (SES) Categories",
+    x = "SES Category",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+bar.SES.cat
+
+```
+
+The dataset is evenly distributed across **socio-economic status (SES)** categories, with 100 observations in each of Low, Medium, and High SES groups. This balance ensures that no SES category dominates the analysis or introduces any biases related to unequal group sizes.
+
+---
+
+``` {r}
+
+# Bar chart for SES.category
+
+bar.new.range <- ggplot(data.q2, aes(x = new.range)) +
+  geom_bar(fill = "blue", color = "black") +  # Bar plot with custom colors
+  labs(
+    title = "Distribution of Socio-Economic Status (SES) Categories",
+    x = "SES Category",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+bar.new.range
+
+```
+
+The **new.range** variable is also mostly equally balanced, with a slightly higher proportion of stores carrying the new product range (TRUE), so there is no danger of one category introducing any biases by dominating the other.
+
+---
+
+### **Initial analysis of continuous predictors vs Customer Satisfaction**
+
+``` {r, warning=FALSE}
+
+# Create scatter plots for `staff.satisfaction` and `delivery.time`
+# `Complete.obs` to exclude any `NA` values when calculating `r`
+
+plot.st.sat <- ggplot(data.q2, aes(x = staff.satisfaction, y = customer.satisfaction)) + 
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue", se = TRUE) +
+  labs(x = "Average staff satisfaction score", y = "Customer satisfaction score", 
+       title = "Staff Satisfaction vs Customer Satisfaction Scores", 
+       subtitle = paste0("r = ", round(cor(data.q2$staff.satisfaction, data.q2$customer.satisfaction, use = "complete.obs"), 2)))
+
+plot.del.time <- ggplot(data.q2, aes(x = delivery.time, y = customer.satisfaction)) + 
+  geom_point() +
+  geom_smooth(method = "lm", color = "blue", se = TRUE) +
+  labs(x = "Average delivery time", y = "Customer satisfaction score", 
+       title = "Average Delivery Time vs Customer Satisfaction Scores", 
+       subtitle = paste0("r = ", round(cor(data.q2$delivery.time, data.q2$customer.satisfaction, use = "complete.obs"), 2)))
+
+# Arrange all plots in a grid
+grid.arrange(plot.st.sat, plot.del.time, ncol = 1)
+
+```
+
+**Staff Satisfaction:**
+
+There is a moderately strong positive linear relationship between **staff satisfaction** and **customer satisfaction** ($r=0.45$). This tells us that on average stores with higher **staff satisfaction scores** tend to have greater overall **customer satisfaction** and vice versa. This relationship is intuitive, as happy customers often lead to happy staff, and satisfied staff are likely to provide a better customer experiences.
+
+
+**Delivery Time:**
+
+There is a weak negative linear relationship between **delivery time** and **customer satisfaction** ($r=-0.26$). This tells us that on average as **delivery times** increase, **customer satisfaction** goes down. This is what we would expect as people who have to wait longer to receive their furniture tend to be less satisfied overall.
+
+---
+
+### **Initial analysis of categorical predictors vs Customer Satisfaction**
+
+``` {r}
+
+# Scatter plot for `SES.category` vs `customer.satisfaction`
+
+# Mean of `customer.satisfaction`
+mean.cust.sat <- mean(data.q2$customer.satisfaction)
+
+plot.SES.cust.sat <- ggplot(data.q2, aes(x = SES.category, y = customer.satisfaction, col = SES.category)) +
+  geom_jitter(width = 0.2, height = 0) +
+  labs(
+    title = "Customer Satisfaction by SES Category",
+    x = "SES Category",
+    y = "Customer Satisfaction",
+    col = "SES Category"
+  ) +
+  theme_minimal() +
+  geom_hline(yintercept = mean.cust.sat, linetype = "dashed", color = "black", linewidth = 1) +
+  annotate("text", x = 0.57, y = mean.cust.sat, label = paste("Mean:", round(mean.cust.sat, 2)), vjust = -1, size = 2.5)
+
+plot.SES.cust.sat
+
+```
+
+This scatter plot of **SES.category** and **customer.satisfaction** provides some initial insights into how satisfaction levels vary across socio-economic status groups (SES). We can see that while the average customer satisfaction scores for the "Low" and "High" SES categories appear quite similar, the "Medium" SES group shows a noticeably higher average satisfaction score. This observation will be important to explore further in the subsequent analysis.
+
+---
+
+``` {r}
+
+# Scatter plot for `new.range` vs `customer.satisfaction`
+
+plot.new.range.cust.sat <- ggplot(data.q2, aes(x = new.range, y = customer.satisfaction, col = new.range)) +
+  geom_jitter(width = 0.2, height = 0) +
+  labs(
+    title = "Customer Satisfaction by New Range",
+    x = "New Range",
+    y = "Customer Satisfaction",
+    col = "New Range"
+  ) +
+  theme_minimal() +
+  geom_hline(yintercept = mean.cust.sat, linetype = "dashed", color = "black", linewidth = 1) +
+  annotate("text", x = 0.57, y = mean.cust.sat, label = paste("Mean:", round(mean.cust.sat, 2)), vjust = -1, size = 2.5)
+
+plot.new.range.cust.sat
+
+```
+
+An initial look at the relationship between **new.range** and **customer.satisfaction** suggests no obvious differences between the two groups. Both distributions appear quite similar. So at first glance, it does not seem that the presence or absence of the new product range has any meaningful impact on predicting customer satisfaction at the store level.
+
+---
+
+### **Exploring the impact of predictors on customer.satisfaction through linear regression models**
+
+As we did in Q1, we will start by investigating the effect of each predictor variable - **staff.satisfaction, delivery.time, SES.category, new.range** - on the dependent variable **customer.satisfaction** and create separate **simple linear regression models** to understand their individual impact on customer satisfaction before exploring a more complex model containing all variables and understanding the differences.
+
+``` {r}
+
+m.staff.sat.cust.sat <- lm(customer.satisfaction ~ staff.satisfaction, data = data.q2)
+summary(m.staff.sat.cust.sat)
+confint(m.staff.sat.cust.sat)
+        
+```
+
+There is a statistically significant positive effect of **staff.satisfaction** on **customer.satisfaction**. For every additional point in staff satisfaction, customer satisfaction increases by 0.746 points, $t(298)=8.797, p<0.001$, 95% CI [0.579 - 0.913]. So as staff becomes happier, so does the overall satisfaction of their store's customers increase.
+
+The Adjusted R-squared value is $R^2=0.204$, which means that we can explain about 20% of the variance in **customer.satisfaction** by **staff.satisfaction** alone.
+
+---
+
+``` {r}
+
+m.del.time.cust.sat <- lm(customer.satisfaction ~ delivery.time, data = data.q2)
+summary(m.del.time.cust.sat)
+confint(m.del.time.cust.sat)
+        
+```
+
+There is a statistically significant negative effect of **delivery.time** on **customer.satisfaction**. For every additional unit of delivery time, customer satisfaction decreases by 0.029 points, $t(298)=-4.627, p<0.001$, 95% CI [-0.041 - (-0.017)]. This makes intuitively sense, as delivery times increase, customer satisfaction tends to go down as they have to wait longer for their products.
+
+The Adjusted R-squared value is $R^2=0.064$, which means that we can only explain about 6.4% of the variance in **customer.satisfaction** by **delivery.time** alone.
+
+---
+
+``` {r}
+
+# Before running summary, we make sure having no new product range is the reference/baseline category
+
+data.q2 <- mutate(data.q2, new.range = factor(new.range, c("FALSE", "TRUE")))
+
+m.new.range.cust.sat <- lm(customer.satisfaction ~ new.range, data = data.q2)
+summary(m.new.range.cust.sat)
+confint(m.new.range.cust.sat)
+        
+```
+
+We can see that there is no significant difference between the average **customer.satisfaction** score between stores with or without the **new product range**. The estimated difference in customer satisfaction is 0.13 ($CI=[-0.164 - 0.424], t(298)=0.868, p=0.386$), indicating that the new product range does not appear to have a meaningful impact on customer satisfaction.
+
+The Adjusted R-squared value is $R^2<-0.001$, which means that **new.range** does not explain any variance in **customer.satisfaction** and performs worse than a null model without the predictor.
+
+---
+
+``` {r}
+
+m.SES.cat.cust.sat <- lm(customer.satisfaction ~ SES.category, data = data.q2)
+anova(m.SES.cat.cust.sat)
+        
+```
+
+We can see that average customer satisfaction differs significantly across the different SESs, $F(2, 297)=93.835, p<0.001$. 
+
+We will explore the differences between the social economic statuses in more detail now, as ANOVA only tells us that there is a significant effect, but it does not explain or quantify in any way how social economic statuses impact customer satisfaction differently.
+
+---
+
+#### **Detailed analysis of SES.category's impact on customer.satisfaction**
+
+After running the ANOVA, we know there are differences between Low, Medium, and High SESs, so let's explore these categories in a bit more detail and find out exactly how they differ in the way they impact customer satisfaction.
+
+``` {r}
+
+# As we did for `new.range` we first make sure that "Low" is the baseline category to compare to in our model
+
+data.q2 <- mutate(data.q2, SES.category = factor(SES.category, levels = c("Low", "Medium", "High")))
+
+
+# Running `summary()` on the lm() with `SES.category`
+
+summary(m.SES.cat.cust.sat)
+
+```
+
+This gives us additional information that we didn't have previously when only running the ANOVA: 
+
+The intercept in the summary represents the **mean customer satisfaction score** for the **Low** SES group at 6.19. For the **Medium** SES group, the customer satisfaction score is significantly higher than for the **Low** SES group by 1.855 points ($t(297)=12.927, p<0.001$).
+
+Similarly, for the **High** SES group, the customer satisfaction score is also significantly higher than for the **Low** SES group by 0.364 points ($t(297)=2.536, p=0.0117$).
+
+We can also see that the Adjusted R-squared value is $R^2=0.383$, which means that **SES.category** explains 38.3% of the variance in **customer.satisfaction**.
+
+While we now know that customer satisfaction levels differ significantly between **Low and Medium SES** and **Low and High SES**, they do not tell us whether there is a different impact between **Medium and High SES** on **customer.satisfaction**. To complete the picture, we will use **emmeans()** and **pairs()** to explore pairwise comparisons between all groups.
+
+``` {r}
+
+# Calculating the means at each SES - Low, Medium, High
+
+( m.cust.sat.SES.cat.emm <- emmeans(m.SES.cat.cust.sat, ~SES.category) )
+
+# Using pairs() for all pairwise contrasts
+
+( m.cust.sat.SES.cat.pairs <- pairs(m.cust.sat.SES.cat.emm) )
+
+# confint() for confidence intervals of all the pairs
+
+( m.cust.sat.SES.cat.confint.pairs <- confint(pairs(m.cust.sat.SES.cat.emm)) )
+
+```
+
+We already knew there was a statistically significant relationship between Medium - Low and High - Low SES. But now we also know that for Medium - High, the customer satisfaction score is significantly better for Medium compared to High SES by 1.491 points ($p<0.001$).
+
+Together with the confidence intervals we can now provide a full picture:
+
+Low - Medium ($CI=[-2.193 - (-1.5167),t(297)=-12.927, p<0.001$])
+
+Low - High ($CI=[-0.702 - (-0.026), t(297)=-2.536, p=0.031]$)
+
+Medium - High ($CI=[1.153 - 1.829], t(297)=10.391, p<0.001$)
+
+We can also plot these estimates that will make the relationship between the different SES on **customer.satisfaction** even clearer.
+
+``` {r}
+
+plot.cust.sat.SES.cat.emm <- ggplot(summary(m.cust.sat.SES.cat.emm), aes(x=SES.category, y=emmean, ymin=lower.CL, ymax=upper.CL)) +
+  geom_point() +
+  geom_linerange() +
+  labs(x="SES Category", y="Average Customer Satisfaction score", 
+       subtitle="Error Bars are Extent of 95% CIs")
+plot.cust.sat.SES.cat.emm
+
+```
+
+The plot clearly shows that **customer.satisfaction** overall is lowest among **low SES stores**, slightly higher for **high SES stores**, and significantly higher for **medium SES stores**. This confirms earlier observations from the summary(), where **medium SES** had a much higher satisfaction score compared to **low SES** (1.855 points more) and **high SES** was marginally higher than low (0.364 points more). The plot also highlights that **medium SES stores** show much higher satisfaction than **high SES stores** (~1.5 points more). We can conclude that people at medium socio-economic status are on average the happiest customers.
+
+With this, we now have a complete picture of how **SES.category** influences **customer.satisfaction** on its own. Next, we will build a **multiple regression model** incorporating all predictors, and later, we will revisit the interaction between **SES.category** and **delivery.time** to examine their combined effects.
+
+---
+
+### **Building a multiple regression model to understand combined effects**
+
+We will construct a **multiple regression model** incorporating all four predictors to explore their effect within one single complex model.
+
+``` {r}
+
+lm.multi.regr.q2 <- lm(customer.satisfaction ~ delivery.time + staff.satisfaction + new.range + SES.category, data = data.q2)
+
+summary(lm.multi.regr.q2)
+confint(lm.multi.regr.q2)
+
+```
+
+Instead of repeating everything from above, we will just focus on any differences we observe compared to running simple linear regressions. The interpretation of our variables here slightly changes as looking at each of the different predictors in our model assumes that all the others are held constant.
+
+There are only two meaningful differences we notice in the multiple regression model:
+
+**1)** The pairing of **SES High - Low** no longer appears to be statistically significant ($b=0.256, CI=[-0.017 - 0.528], t(294)=1.846, p=0.066$).
+
+This change is likely due to shared variance between predictors, as in the multiple regression model other predictors might account for some of the variance that **SES High - Low** was previously explaining. As a result, the contribution of **SES High - Low**, after controlling for the other variables is reduced and is no longer significant.
+
+**2)** The Adjusted R-squared value for the multiple regression model is $R^2=0.438$, indicating that the combination of all four predictors (without any interaction terms) explains **43.8%** of the variance in **customer.satisfaction**. This result is particularly interesting when compared to our earlier analysis, where **SES.category** alone explained 38.3% of the variance in **customer.satisfaction**, but other variables like **staff.satisfaction** also explained about 20% of variance by itself. 
+
+While we might expect the combined predictors in a multiple regression model to explain significantly more variance, the relatively modest increase to **43.8%** suggests that the predictors share overlapping explanatory power. In other words, some of the variance explained by **SES.category** may overlap with variance explained by **staff.satisfaction** and other predictor variables, leading to diminishing returns when combining them into a single model. This overlap reflects the correlation among the predictors, reducing the unique contribution of each variable when considered together.
+
+---
+
+### **Checking for Multicollinearity**
+
+As before, we are going to do a quick check for multicollinearity for any intercorrelations among predictor variables.
+
+``` {r}
+
+vif(lm.multi.regr.q2)
+
+```
+
+All VIF scores for **delivery.time** (1.042), **staff.satisfaction** (1.275), **new.range** (1.004), and **SES.category** (1.319) are all well below this threshold, so we can confidently conclude that multicollinearity is not a concern.
+
+---
+
+### **Examining delivery times upon SES and their impact on customer satisfaction**
+
+In this final section, we examine whether **delivery.time** impacts **customer.satisfaction** differently depending on socio-economic statuses (SES). We will be focusing on their **interaction** rather than revisiting earlier findings when we already concluded that delivery time on its own does indeed have a statistically significant, negative linear correlation with customer satisfaction.
+
+``` {r}
+# Creating a linear regression model with `delivery.time` and `SES.category` as an interaction term
+
+lm.del.time.SES.category <- lm(customer.satisfaction ~ delivery.time * SES.category, data = data.q2)
+
+```
+
+---
+
+Let's first try and plot this and see if we can spot any obvious trends.
+
+``` {r}
+
+# Create individual histograms for each SES category to compare distribution
+
+hist.low.SES <- ggplot(subset(data.q2, SES.category == "Low"), aes(x=delivery.time)) +
+  geom_histogram(binwidth=1.7, fill="steelblue", alpha=0.7) +
+  geom_vline(aes(xintercept=mean(delivery.time)), linetype="dashed") +
+  annotate(
+    "text", 
+    x=mean(subset(data.q2, SES.category == "Low")$delivery.time), 
+    y=5, 
+    label=paste0("Mean: ", round(mean(subset(data.q2, SES.category == "Low")$delivery.time), 2)), hjust=-0.1, size=3
+  ) +
+  labs(x="Delivery Time", y="Frequency", title="Low SES") +
+  theme_minimal()
+
+hist.medium.SES <- ggplot(subset(data.q2, SES.category == "Medium"), aes(x=delivery.time)) +
+  geom_histogram(binwidth=1.7, fill="orange", alpha=0.7) +
+  geom_vline(aes(xintercept=mean(delivery.time)), linetype="dashed") +
+  annotate(
+    "text", 
+    x=mean(subset(data.q2, SES.category == "Medium")$delivery.time), 
+    y=5, 
+    label=paste0("Mean: ", round(mean(subset(data.q2, SES.category == "Medium")$delivery.time), 2)), hjust=-0.1, size=3) +
+  labs(x="Delivery Time", y="Frequency", title="Medium SES") +
+  theme_minimal()
+
+hist.high.SES <- ggplot(subset(data.q2, SES.category == "High"), aes(x=delivery.time)) +
+  geom_histogram(binwidth=1.7, fill="darkgreen", alpha=0.7) +
+  geom_vline(aes(xintercept=mean(delivery.time)), linetype="dashed") +
+  annotate(
+    "text", 
+    x=mean(subset(data.q2, SES.category == "High")$delivery.time), 
+    y=5, 
+    label=paste0("Mean: ", round(mean(subset(data.q2, SES.category == "High")$delivery.time), 2)), hjust=-0.1, size=3) +
+  labs(x="Delivery Time", y="Frequency", title="High SES") +
+  theme_minimal()
+
+# Arrange the plots vertically
+grid.arrange(hist.low.SES, hist.medium.SES, hist.high.SES, ncol=1)
+
+```
+
+
+At first glance, delivery times appear relatively evenly distributed across the three SES categories, but some clear differences emerge:
+
+**Low SES stores:**
+The majority of delivery times cluster at 60 or higher, with a slightly right-skewed distribution and a higher average delivery time (**mean = 62.36**).
+
+**Medium SES stores:** 
+Delivery times are more evenly spread, with fewer stores reporting high delivery times compared to Low SES stores. There are notably more stores with shorter delivery times (**mean = 56.89**).
+
+**High SES stores:** 
+The distribution is most centered around the 60 mark, with fewer high delivery times than Low SES stores and fewer low delivery times than Medium SES stores (**mean = 59.55**).
+
+Overall, Medium SES stores have the shortest delivery times on average, while Low SES stores have the longest, with High SES stores falling in between.
+
+Next, we’ll examine whether these visually observed differences are actually statistically significant.
+
+``` {r}
+
+# Running an ANOVA on the model
+
+anova(lm.del.time.SES.category)
+
+```
+
+Interestingly, our ANOVA results indicate that the interaction term between **delivery.time** and **SES.category** is marginally **non-significant** ($p = 0.06$). This means that we cannot confidently conclude that the effect of **delivery.time** on **customer.satisfaction** differs across **SES.category**. However, this does not mean we cannot draw any meaningful conclusions that may have an impact in the real world from this observation. Additional analysis of the model coefficients may still provide valuable insights into how **delivery.time** interacts with **SES.category**, which could inform practical decision-making.
+
+---
+
+``` {r}
+
+# Running a summary() and confint() on the model
+
+summary(lm.del.time.SES.category)
+confint(lm.del.time.SES.category)
+
+```
+
+When interpreting a model with an **interaction term**, we must carefully consider the context of the main effects. For **delivery.time**, the interpretation assumes the other predictors are "0". But since **SES.category** is a categorical variable, its reference level is **Low SES**.
+
+We will focus on interpreting the effects of **delivery.time** and the **interaction terms** and ignore the intercept and main effects of **SES.category** for this question:
+
+For **Low SES stores**, the main effect of **delivery.time** on **customer.satisfaction** is not statistically significant ($b=-0.005, CI=[-0.021, 0.011], t(294)=-0.601, p=0.548$). This means a negligible decrease of 0.004944 points in customer satisfaction for each unit increase in delivery time.
+
+For **Medium SES stores**, the decrease in **customer.satisfaction** due to **delivery.time** is slightly steeper than for Low SES stores (-0.01), but this effect is not statistically significant ($b=-0.01, CI=[-0.034, 0.013], t(294)=-0.866, p=0.387$).
+
+For **High SES stores** however, the decrease in **customer.satisfaction** is relatively steeper (-0.03) than for Low SES stores ($b=-0.03, CI=[-0.054, -0.005], t(294)=-2.374, p=0.018$), and this effect is statistically significant.
+
+Overall, the impact of **delivery.time** on **customer.satisfaction** depends on **SES.category**. High SES stores show the strongest sensitivity to increasing delivery times and this is why the decline in customer satisfaction is the steepest, followed by Medium SES stores, with Low SES stores being the least affected.
+
+While the interaction term itself was not statistically significant (ANOVA), we can still observe at least one significant relationship when comparing **High SES** to **Low SES** stores.
+
+To better illustrate this relationship, we will visualize the interaction effect.
+
+``` {r}
+
+# Create a tibble for `customer.satisfaction` predictions
+
+cust.sat.pred <- tibble(delivery.time = rep(c(30, 60, 90), 3), 
+                        SES.category = c(rep("Low", 3), rep("Medium", 3), rep("High", 3)))
+
+cust.sat.pred <- mutate(cust.sat.pred,
+                        cust.sat.hat = predict(lm.del.time.SES.category, cust.sat.pred))
+
+# Create plot using predictions
+
+ggplot(cust.sat.pred) +
+  geom_line(aes(x = delivery.time, y = cust.sat.hat, colour = as.factor(SES.category))) +
+  labs(colour = "SES Category") +
+  ylab("Predicted Customer Satisfaction")
+
+```
+
+Firstly, regardless of a local store's SES, **customer satisfaction** decreases as **delivery times** increase.
+
+**Low SES stores** are the least affected by increasing delivery times, with a relatively flat negative slope, though their overall customer satisfaction levels are lower than those of **Medium and High SES stores**.
+    
+**Medium SES stores** show higher customer satisfaction overall, but their satisfaction declines more sharply as delivery times increase, which is shown by a steeper negative slope.
+
+**High SES stores** are the most sensitive to delivery delays, with the steepest decline in customer satisfaction, even though their baseline satisfaction is slightly lower than that of **Medium SES stores**.
+
+In summary, the impact of **delivery time** on **customer satisfaction** varies by the **socio-economic context of the store**. The higher the SES of a store, the more sensitive to delays they are, experiencing a more pronounced negative effect on customer satisfaction.
+
+-----------------------------------------------------------------------------------------

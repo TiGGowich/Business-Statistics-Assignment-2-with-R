@@ -12,7 +12,7 @@ The assignment was completed using R and applies core statistical methods to dra
 ## 📂 Repository Contents
 
 - [**`cvd_and_satisfaction_analysis.rmd`**](./cvd_and_satisfaction_analysis.rmd): Full R Markdown source code containing all data loading, EDA, analysis, and visualizations.
-- [**`cvd_and_satisfaction_analysis.html`**](./5652632.html): Knitted HTML report with results and business-focused insights.
+- [**`cvd_and_satisfaction_analysis.html`**](./cvd_and_satisfaction_analysis.html): Knitted HTML report with results and business-focused insights.
 - [**`Cardio_Vascular_Disease.csv`**](./Cardio_Vascular_Disease.csv): Public health dataset used in Question 1.
 - [**`cust_satisfaction.csv`**](./cust_satisfaction.csv): Public retail customer satisfaction dataset used in Question 2.
 
